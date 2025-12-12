@@ -190,3 +190,188 @@ $form.ShowDialog() | Out-Null
 # Devolver los valores ingresados (output del script)
 
 return $form.Tag.Box1, $form.Tag.Box2, $form.Tag.Box3
+
+#CUARTO SCRIPT: SISTEMA DE LOGs DE EVENTOS DEL SISTEMA
+#Nombre y Apellido del autor: kevin almache
+#fecha: 12/12/2025
+#Define una función llamada New-FolderCreation
+function New-FolderCreation {
+#Hace que la función se comporte como un cmdlet de PowerShell
+    [CmdletBinding()]
+#Empieza la definición de parámetros
+    param(
+#El parámetro se vuelve obligatorio
+        [Parameter(Mandatory = $true)]
+#Recibe el nombre de la carpeta como texto.
+        [string]$foldername
+#Cierra el parametro
+    )
+
+#Une la ruta actual con el nombre de la carpeta
+    $logpath = Join-Path -Path (Get-Location).Path -ChildPath $foldername
+#Pregunta si la carpeta NO existe
+    if (-not (Test-Path -Path $logpath)) {
+#Crea la carpeta y no muestra nada en pantalla
+        New-Item -Path $logpath -ItemType Directory -Force | Out-Null
+#Cierra el if
+    }
+#Devuelve la ruta completa de la carpeta
+    return $logpath
+#Cierra la funcion
+}
+#Define la función Write-Log
+function Write-Log {
+#La convierte en cmdlet
+    [CmdletBinding()]
+#Empieza la lista de parámetros
+    param(
+        #Parámetro obligatorio cuando se usa el modo Create
+        [Parameter(Mandatory = $true, ParameterSetName = 'Create')]
+        #Alias alternativo para el parámetro
+        [Alias('Names')]
+        #Nombre base del archivo
+        [object]$Name,   
+        
+        #Extensión del archivo
+        [Parameter(Mandatory = $true, ParameterSetName = 'Create')]
+        [string]$Ext,
+        
+        #Carpeta donde se guarda el log
+        [Parameter(Mandatory = $true, ParameterSetName = 'Create')]
+        [string]$folder,
+        
+        #Activa el modo crear archivo
+        [Parameter(ParameterSetName = 'Create', Position = 0)]
+        [switch]$Create,
+
+        #Texto que se va a escribir en el log
+        [Parameter(Mandatory = $true, ParameterSetName = 'Message')]
+        [string]$message,
+        
+        #Ruta del archivo log
+        [Parameter(Mandatory = $true, ParameterSetName = 'Message')]
+        [string]$path,
+        
+        #Parámetro opcional
+        [Parameter(Mandatory = $false, ParameterSetName = 'Message')]
+        #Solo acepta esos valores
+        [ValidateSet('Information','Warning','Error')]
+        #Nivel del mensaje. Por defecto Information
+        [string]$Severity = 'Information',
+
+        #Activa el modo escribir mensaje
+        [Parameter(ParameterSetName = 'Message', Position = 0)]
+        [switch]$MSG
+    #cierra parametros
+    )
+
+    #Decide qué bloque usar según el modo
+    switch ($PsCmdlet.ParameterSetName) {
+        #Entra al modo crear archivos
+        "Create" {
+            #Array para guardar rutas creadas
+            $created = @()
+
+            #Inicializa array de nombres
+            $namesArray = @()
+            #Verifica que Name tenga valor.
+            if ($null -ne $Name) {
+                #Si ya es un array, lo usa
+                if ($Name -is [System.Array]) { $namesArray = $Name }
+                #Si no, lo convierte en array
+                else { $namesArray = @($Name) }
+            #Cierra if
+            }
+
+            #Obtiene la fecha
+            $date1 = (Get-Date -Format "yyyy-MM-dd")
+            #Obtiene la hora
+            $time  = (Get-Date -Format "HH-mm-ss")
+
+
+            #Crea la carpeta de logs
+            $folderPath = New-FolderCreation -foldername $folder
+            
+            #Recorre cada nombre
+            foreach ($n in $namesArray) {
+            
+                #Convierte el nombre a texto
+                $baseName = [string]$n
+
+
+                #Construye el nombre del archivo
+                $fileName = "${baseName}_${date1}_${time}.$Ext"
+
+
+                #Ruta completa del archivo
+                $fullPath = Join-Path -Path $folderPath -ChildPath $fileName
+
+                #Intenta crear el archivo
+                try {
+
+                    #Crea el archivo
+                    New-Item -Path $fullPath -ItemType File -Force -ErrorAction Stop | Out-Null
+
+                    #Guarda la ruta creada
+                    $created += $fullPath
+                #Fin del try
+                }
+                #Si falla
+                catch {
+                    #Muestra advertencia
+                    Write-Warning "Failed to create file '$fullPath' - $_"
+                #Cierra catch
+                }
+            #Cierra foreach.
+            }
+            #Devuelve las rutas creadas
+            return $created
+        #Cierra bloque Create
+        }
+
+        #Modo escribir mensaje
+        "Message" {
+            #Obtiene la carpeta del archivo
+            $parent = Split-Path -Path $path -Parent
+            #Si la carpeta no existe
+            if ($parent -and -not (Test-Path -Path $parent)) {
+                #Crea la carpeta
+                New-Item -Path $parent -ItemType Directory -Force | Out-Null
+            #Cierra if
+            }
+
+            #Obtiene fecha y hora actual
+            $date = Get-Date
+            #Arma el mensaje final                                                                            
+            $concatmessage = "|$date| |$message| |$Severity|"
+            #Decide color según severidad
+            switch ($Severity) {
+                #Color verde
+                "Information" { Write-Host $concatmessage -ForegroundColor Green }
+                #Color amarillo
+                "Warning"     { Write-Host $concatmessage -ForegroundColor Yellow }
+                #Color rojo
+                "Error"       { Write-Host $concatmessage -ForegroundColor Red }
+            #Cierra el switch
+            }
+            #Escribe el mensaje en el archivo
+            Add-Content -Path $path -Value $concatmessage -Force
+
+            #Devuelve la ruta del log
+            return $path
+        #Cierra bloque Message
+        }
+        #Si no entra a ningún modo
+        default {
+            #Lanza un error
+            throw "Unknown parameter set: $($PsCmdlet.ParameterSetName)"
+        #Cierra default
+        }
+    #Cierra switch
+    }
+#Cierra función
+}
+#Ejecuta el modo Create y guarda la ruta del log creado.
+$logPaths = Write-Log -Name "Name-Log" -folder "logs" -Ext "log" -Create
+#Imprime la ruta del log para luego escribir mensajes
+$logPaths
